@@ -608,8 +608,12 @@ a:hover {
 
 .interim {
   margin: 14px 0 0;
-  color: #64748b;
-  font-style: italic;
+  border-left: 3px solid #2f80ed;
+  padding: 8px 0 8px 12px;
+  color: #1d2939;
+  font-style: normal;
+  font-weight: 650;
+  background: linear-gradient(90deg, rgba(47, 128, 237, 0.1), transparent 82%);
 }
 
 .timeline {

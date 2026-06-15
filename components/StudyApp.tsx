@@ -4,14 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { StudyNote } from "../lib/types";
 
 const LOCAL_KEY = "lmn-smart-transcribe-local";
-const CHUNK_MS = 8000;
-const CLOUD_RESTART_MS = 120;
-const MIN_CLOUD_AUDIO_BYTES = 1400;
+const CHUNK_MS = 4500;
+const CLOUD_RESTART_MS = 80;
+const MIN_CLOUD_AUDIO_BYTES = 950;
 const SPEECH_AUDIO_BITS = 64000;
 const MIN_VOICE_LEVEL = 2;
 const CONTEXT_SEGMENTS = 5;
 const LIVE_DRAFT_LIMIT = 520;
 const MAX_LOCAL_SESSIONS = 30;
+const AUTOSAVE_DELAY_MS = 1800;
 
 type AiStatus = {
   configured: boolean;
@@ -53,6 +54,7 @@ type MeetingSession = {
   endedAt?: string;
   segments: Segment[];
   lastSavedAt?: string;
+  cloudNoteId?: string;
 };
 
 type LocalStore = {
@@ -254,7 +256,8 @@ function normalizeSession(value: unknown): MeetingSession | null {
     updatedAt: asString(item.updatedAt, now),
     endedAt: asString(item.endedAt) || undefined,
     segments,
-    lastSavedAt: asString(item.lastSavedAt) || undefined
+    lastSavedAt: asString(item.lastSavedAt) || undefined,
+    cloudNoteId: asString(item.cloudNoteId) || undefined
   };
 }
 
@@ -351,6 +354,25 @@ function sessionMarkdown(session: MeetingSession) {
   ].filter(Boolean).join("\n");
 }
 
+function sessionContentSignature(session: MeetingSession) {
+  const readySegments = session.segments
+    .filter((segment) => segment.status === "ready" && (segment.sourceText || segment.translatedText))
+    .sort((a, b) => a.clipIndex - b.clipIndex);
+  const last = readySegments[readySegments.length - 1];
+  return [
+    session.id,
+    session.title,
+    session.host,
+    session.date,
+    session.targetLang,
+    session.endedAt || "",
+    readySegments.length,
+    last?.id || "",
+    last?.sourceText.length || 0,
+    last?.translatedText.length || 0
+  ].join("|");
+}
+
 function newSession(host: string, targetLang: string): MeetingSession {
   const now = new Date().toISOString();
   return {
@@ -406,6 +428,10 @@ export default function StudyApp() {
   const targetLangRef = useRef(targetLang);
   const speechLangRef = useRef(speechLang);
   const inputSourceRef = useRef<CaptureSource>(inputSource);
+  const autosaveTimerRef = useRef<number | null>(null);
+  const autosaveInFlightRef = useRef(false);
+  const pendingAutosaveSessionRef = useRef<MeetingSession | null>(null);
+  const lastAutoSavedSignatureRef = useRef("");
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) || sessions[0],
@@ -468,6 +494,13 @@ export default function StudyApp() {
   }, [sessions]);
 
   useEffect(() => {
+    if (!hydrated || !dbEnabled) return;
+    const session = sessions.find((item) => item.id === activeSessionIdRef.current);
+    if (!session?.segments.some((segment) => segment.status === "ready" && (segment.sourceText || segment.translatedText))) return;
+    queueTextAutosave(session);
+  }, [hydrated, dbEnabled, sessions]);
+
+  useEffect(() => {
     targetLangRef.current = targetLang;
     speechLangRef.current = speechLang;
     inputSourceRef.current = inputSource;
@@ -482,6 +515,12 @@ export default function StudyApp() {
       if (localMediaUrl) URL.revokeObjectURL(localMediaUrl);
     };
   }, [localMediaUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
+    };
+  }, []);
 
   function currentActiveSessionSnapshot() {
     const currentId = activeSessionIdRef.current;
@@ -1039,42 +1078,92 @@ export default function StudyApp() {
     setMicLevel(0);
   }
 
-  async function saveActiveSession() {
-    const session = activeSession;
-    if (!session) return;
-    const savedAt = new Date().toISOString();
-    updateActiveSession((item) => item.id === session.id ? { ...item, lastSavedAt: savedAt, updatedAt: savedAt } : item);
+  function queueTextAutosave(session: MeetingSession) {
+    if (!dbEnabled) return;
+    const signature = sessionContentSignature(session);
+    if (signature === lastAutoSavedSignatureRef.current) return;
+    pendingAutosaveSessionRef.current = session;
+    if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null;
+      void flushTextAutosave();
+    }, AUTOSAVE_DELAY_MS);
+  }
 
-    if (!dbEnabled) {
-      setStorageMessage("Saved locally in this browser");
-      return;
-    }
+  async function flushTextAutosave() {
+    if (autosaveInFlightRef.current) return;
+    const queuedSession = pendingAutosaveSessionRef.current;
+    if (!queuedSession) return;
+    pendingAutosaveSessionRef.current = null;
+    const session = sessionsRef.current.find((item) => item.id === queuedSession.id) || queuedSession;
+    const signature = sessionContentSignature(session);
+    if (signature === lastAutoSavedSignatureRef.current) return;
 
+    autosaveInFlightRef.current = true;
     try {
+      const saved = await saveSessionText(session, "autosave");
+      if (saved) lastAutoSavedSignatureRef.current = signature;
+    } finally {
+      autosaveInFlightRef.current = false;
+      if (pendingAutosaveSessionRef.current && !autosaveTimerRef.current) {
+        autosaveTimerRef.current = window.setTimeout(() => {
+          autosaveTimerRef.current = null;
+          void flushTextAutosave();
+        }, AUTOSAVE_DELAY_MS);
+      }
+    }
+  }
+
+  async function saveSessionText(session: MeetingSession, source: "manual" | "autosave") {
+    try {
+      const readySegments = session.segments.filter((segment) => segment.status === "ready" && (segment.sourceText || segment.translatedText));
+      const lastSegment = readySegments[readySegments.length - 1];
       const res = await fetch("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           memberName: userName || "Personal",
           note: {
+            id: session.cloudNoteId,
             date: session.date,
             member_name: userName || "Personal",
             note_type: "transcript" as const,
             title: `Meeting - ${session.title}`,
             content: sessionMarkdown(session),
             visibility: "private" as const,
-            source: "lmn-smart-transcribe",
-            recordingSessionId: session.id
+            source: source === "autosave" ? "lmn-smart-transcribe-autosave" : "lmn-smart-transcribe",
+            recordingSessionId: session.id,
+            chunkId: lastSegment?.id || null,
+            chunk: readySegments.length
           }
         })
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || "Save failed");
-      setStorageMessage("Saved text to Cloudflare");
-      void refreshSavedNotes();
+      const savedAt = new Date().toISOString();
+      const cloudNoteId = String(payload.note?.id || session.cloudNoteId || "");
+      updateActiveSession((item) => item.id === session.id ? { ...item, cloudNoteId, lastSavedAt: savedAt, updatedAt: savedAt } : item);
+      setStorageMessage(source === "autosave" ? "Autosaved text to Cloudflare" : "Saved text to Cloudflare");
+      if (source === "manual") void refreshSavedNotes();
+      return true;
     } catch (error) {
-      setStorageMessage(error instanceof Error ? error.message : "Save failed; local copy kept");
+      setStorageMessage(error instanceof Error ? error.message : source === "autosave" ? "Autosave failed; local copy kept" : "Save failed; local copy kept");
+      return false;
     }
+  }
+
+  async function saveActiveSession() {
+    const session = activeSession;
+    if (!session) return;
+
+    if (!dbEnabled) {
+      const savedAt = new Date().toISOString();
+      updateActiveSession((item) => item.id === session.id ? { ...item, lastSavedAt: savedAt, updatedAt: savedAt } : item);
+      setStorageMessage("Saved locally in this browser");
+      return;
+    }
+
+    await saveSessionText(session, "manual");
   }
 
   function downloadTranscript(session = activeSession) {

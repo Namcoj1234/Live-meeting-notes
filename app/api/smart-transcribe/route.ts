@@ -177,6 +177,28 @@ function parseLooseJson(text: string) {
   }
 }
 
+function looksLikeJsonFragment(text: string) {
+  return /^[\s`]*(\{|\[|```json)/i.test(text) || /"?(sourceText|translatedText|source_text|translated_text)"?\s*:/i.test(text);
+}
+
+function hasRunawayContent(text: string) {
+  return /Sustainable Development Goals|Paris Agreement|global citizenship|lasting legacy|future generations|green roofs|green walls|create a better world|global community/i.test(text);
+}
+
+function tooLongForChunk(output: string, input: string) {
+  const cleanOutput = output.trim();
+  const cleanInput = input.trim();
+  if (!cleanOutput || !cleanInput) return false;
+  return cleanOutput.length > Math.max(cleanInput.length * 3.5, cleanInput.length + 700);
+}
+
+function assertSafeAiText(label: string, text: string, rawInput: string) {
+  if (!text) return;
+  if (looksLikeJsonFragment(text)) throw new Error(`${label} contains JSON instead of speech text`);
+  if (hasRunawayContent(text)) throw new Error(`${label} contains unrelated generated content`);
+  if (tooLongForChunk(text, rawInput)) throw new Error(`${label} is too long for the current speech chunk`);
+}
+
 async function parseAiResponse(res: Response) {
   const raw = await res.text();
   let payload: CloudflareAiPayload | null = null;
@@ -313,7 +335,10 @@ async function interpretBilingual(rawText: string, sourceLang: string, targetLan
               "Return sourceText as the cleaned transcript for the current chunk only, in the original speaker language.",
               "Return translatedText as a natural translation for the current chunk only, using previous context for continuity.",
               "Do not translate the previous context again.",
-              "If source and target are the same language, translatedText may match sourceText."
+              "If source and target are the same language, translatedText may match sourceText.",
+              "Do not continue the topic beyond the current chunk.",
+              "Keep sourceText and translatedText close in length to the rawTranscript.",
+              "No Markdown, no prose, and no keys outside the required JSON object."
             ],
             requiredJsonShape: {
               sourceText: "cleaned transcript in the original speaker language",
@@ -324,7 +349,7 @@ async function interpretBilingual(rawText: string, sourceLang: string, targetLan
         }
       ],
       temperature: 0.1,
-      max_tokens: 700
+      max_tokens: 380
     }),
     "application/json"
   );
@@ -332,7 +357,9 @@ async function interpretBilingual(rawText: string, sourceLang: string, targetLan
   const responseText = textFrom(result);
   const parsed = parseLooseJson(responseText);
   if (!parsed) {
+    if (looksLikeJsonFragment(responseText)) throw new Error("Interpreter returned malformed JSON");
     const freeform = compactSpeechText(responseText);
+    assertSafeAiText("Interpreter response", freeform, compacted);
     if (freeform && normalizedTarget !== "auto" && normalizedSource !== normalizedTarget) {
       return {
         model: interpreterModel,
@@ -346,6 +373,8 @@ async function interpretBilingual(rawText: string, sourceLang: string, targetLan
   let interpretedSource = compactSpeechText(String(parsed?.sourceText || parsed?.source_text || compacted));
   const interpretedTarget = compactSpeechText(String(parsed?.translatedText || parsed?.translated_text || ""));
   const interpretedLang = normalizeLanguage(String(parsed?.sourceLang || parsed?.source_lang || normalizedSource));
+  assertSafeAiText("Interpreter sourceText", interpretedSource, compacted);
+  assertSafeAiText("Interpreter translatedText", interpretedTarget, compacted);
   const sourceGuess = guessLanguage(interpretedSource, interpretedLang);
   if (normalizedSource !== "auto" && sourceGuess !== normalizedSource && sourceGuess === normalizedTarget) {
     interpretedSource = compacted;
