@@ -1113,109 +1113,80 @@ export default function StudyApp() {
   const storageLabel = dbEnabled ? "Cloudflare text DB" : "Local text memory";
 
   return (
-    <>
-      <header className="app-header">
-        <div className="container header-grid">
-          <div>
-            <p className="eyebrow">Personal LMN</p>
-            <h1>Live Meeting Notes</h1>
-            <p className="header-sub">Record, transcribe, translate, and keep a clean bilingual memory of every conversation.</p>
-          </div>
-          <div className="status-strip">
-            <span className={aiStatus.configured ? "status-dot green" : "status-dot amber"} />
-            <div>
-              <strong>{aiStatus.configured ? "Smart Transcribe ready" : "Free browser mode"}</strong>
-              <small>{aiStatus.configured ? "Meaning-first bilingual notes" : "Cloud AI keys not set"}</small>
-            </div>
-          </div>
+    <div className="app-frame">
+      <header className="command-bar">
+        <div className="brand-block">
+          <h1>Live Meeting Notes</h1>
+          <p>{activeSession?.title || "Untitled meeting"}</p>
+        </div>
+
+        <div className="status-cluster">
+          <span className={recording ? "status-token live" : "status-token"}>{recording ? "Live recording" : "Ready"}</span>
+          <span className={aiStatus.configured ? "status-token ok" : "status-token warn"}>{aiStatus.configured ? "Smart AI ready" : "Browser mode"}</span>
+          <span className={dbEnabled ? "status-token ok" : "status-token"}>{storageLabel}</span>
+        </div>
+
+        <div className="command-actions">
+          <button className="secondary-command" onClick={createFreshSession} type="button">New</button>
+          <button className="secondary-command" onClick={saveActiveSession} type="button">Save text</button>
+          <button className={recording ? "primary-command stop" : "primary-command"} onClick={recording ? stopRecording : startRecording} type="button">
+            {recordLabel}
+          </button>
         </div>
       </header>
 
-      <main className="container workspace">
-        <section className="control-panel">
-          <div className="section-head">
-            <span>Session</span>
-            <strong>{recording ? "Live" : "Idle"}</strong>
+      <main className="app-shell">
+        <aside className="setup-panel">
+          <div className="panel-section meeting-section">
+            <div className="section-head">
+              <span>Meeting setup</span>
+              <strong>{modeLabel}</strong>
+            </div>
+            <label className="field">
+              <span>Your name</span>
+              <input value={userName} onChange={(event) => setUserName(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>Meeting title</span>
+              <input
+                value={activeSession?.title || ""}
+                onChange={(event) => updateActiveSession((session) => ({ ...session, title: event.target.value, updatedAt: new Date().toISOString() }))}
+                onFocus={ensureActiveSession}
+                placeholder="Create or name a meeting"
+              />
+            </label>
           </div>
 
-          <div className="session-summary">
-            <div>
+          <div className="panel-section">
+            <div className="section-head">
               <span>Source</span>
               <strong>{activeSource.label}</strong>
             </div>
-            <div>
-              <span>Translate</span>
-              <strong>{languageLabel(targetLang)}</strong>
-            </div>
-            <div>
-              <span>Mode</span>
-              <strong>{modeLabel}</strong>
-            </div>
-            <div>
-              <span>Host</span>
-              <strong>{userName || "Personal"}</strong>
-            </div>
-          </div>
-
-          <div className="mini-log">
-            <span>{engineMessage}</span>
-            <span>{storageLabel}</span>
-          </div>
-        </section>
-
-        <section className="live-board">
-          <div className="capture-dock">
-            <div className="dock-head">
-              <div>
-                <span className="panel-label">Capture source</span>
-                <h2>{activeSource.label}</h2>
-                <p>{sourceReadyText}</p>
-              </div>
-              <span className={recording ? "live-pill active" : "live-pill"}>{recording ? "Recording" : "Ready"}</span>
-            </div>
-
-            <div className="session-inline">
-              <label className="field">
-                <span>Your name</span>
-                <input value={userName} onChange={(event) => setUserName(event.target.value)} />
-              </label>
-
-              <label className="field">
-                <span>Meeting title</span>
-                <input
-                  value={activeSession?.title || ""}
-                  onChange={(event) => updateActiveSession((session) => ({ ...session, title: event.target.value, updatedAt: new Date().toISOString() }))}
-                  onFocus={ensureActiveSession}
-                  placeholder="Create or name a meeting"
-                />
-              </label>
-            </div>
-
-            <div className="source-card-grid" role="group" aria-label="Audio source">
+            <div className="source-list" role="group" aria-label="Audio source">
               {CAPTURE_SOURCES.map((source) => (
                 <button
-                  className={inputSource === source.value ? "source-card active" : "source-card"}
+                  className={inputSource === source.value ? "source-row active" : "source-row"}
                   disabled={recording}
                   key={source.value}
                   onClick={() => changeInputSource(source.value)}
                   type="button"
                 >
-                  <span>{source.short}</span>
-                  <strong>{source.label}</strong>
-                  <small>{source.detail}</small>
+                  <span>{source.label}</span>
+                  <small>{source.short}</small>
                 </button>
               ))}
             </div>
+            <p className="source-note">{sourceReadyText}</p>
 
             {inputSource === "meeting" && (
-              <div className="source-hint">
-                <strong>Meeting capture uses browser share audio</strong>
-                <span>For the cleanest result, share the browser tab that is playing the meeting. Desktop audio depends on the browser and operating system picker.</span>
+              <div className="source-hint compact">
+                <strong>Use tab audio when possible</strong>
+                <span>Pick the tab or window, then enable audio in the browser share picker.</span>
               </div>
             )}
 
             {inputSource === "file" && (
-              <div className="file-deck">
+              <div className="file-deck compact">
                 <input
                   accept="audio/*,video/*"
                   hidden
@@ -1240,76 +1211,66 @@ export default function StudyApp() {
                 )}
               </div>
             )}
+          </div>
 
-            <div className="language-bar">
-              <label className="config-card">
-                <span>Speaker language</span>
-                <select value={speechLang} onChange={(event) => changeSpeechLanguage(event.target.value)} aria-label="Speaker language">
-                  {SPEECH_LANGUAGES.map((item) => <option value={item.code} key={item.code}>{item.label}</option>)}
-                </select>
-              </label>
-              <label className="config-card">
-                <span>Translate to</span>
-                <select value={targetLang} onChange={(event) => changeTargetLanguage(event.target.value)} aria-label="Translation language">
-                  {NATIVE_LANGUAGES.map((item) => <option value={item.code} key={item.code}>{item.label}</option>)}
-                </select>
-              </label>
-              <div className="config-card">
-                <span>Transcription engine</span>
-                <div className="mode-switch" role="group" aria-label="Transcription mode">
-                  <button className={mode === "smart" ? "active" : ""} onClick={() => setMode("smart")} type="button">Smart AI</button>
-                  <button
-                    className={mode === "browser" ? "active" : ""}
-                    disabled={inputSource !== "mic"}
-                    onClick={() => setMode("browser")}
-                    type="button"
-                  >
-                    Browser
-                  </button>
-                </div>
-              </div>
+          <div className="panel-section">
+            <div className="section-head">
+              <span>Language</span>
+              <strong>{languageLabel(targetLang)}</strong>
             </div>
-
-            <div className="capture-command">
-              <div className="record-row">
-                <button className={recording ? "record-button stop" : "record-button"} onClick={recording ? stopRecording : startRecording} type="button">
-                  {recordLabel}
-                </button>
-                <button className="icon-button" onClick={createFreshSession} type="button" title="New meeting">New</button>
-              </div>
-
-              <div className="meter-card">
-                <div className="meter-label">
-                  <span>{captureSourceLabel(inputSource)}</span>
-                  <strong>{micLevel}%</strong>
-                </div>
-                <div className="meter"><span style={{ width: `${micLevel}%` }} /></div>
-              </div>
-
-              <div className="action-grid dock-actions">
-                <button onClick={saveActiveSession} type="button">Save text</button>
-                <button onClick={clearActiveSession} type="button">Clear</button>
-                <button onClick={() => downloadTranscript()} type="button">Markdown</button>
-                <button onClick={() => setShowDetails((value) => !value)} type="button">{showDetails ? "Hide details" : "Details"}</button>
-              </div>
-            </div>
-
-            <div className="mini-log dock-log">
-              <span>{engineMessage}</span>
-              <span>{storageMessage}</span>
-              <span>{cloudReady ? `${captureSourceLabel(inputSource)} to bilingual text` : "Mic-only browser draft"}</span>
+            <label className="field">
+              <span>Speaker language</span>
+              <select value={speechLang} onChange={(event) => changeSpeechLanguage(event.target.value)} aria-label="Speaker language">
+                {SPEECH_LANGUAGES.map((item) => <option value={item.code} key={item.code}>{item.label}</option>)}
+              </select>
+            </label>
+            <label className="field">
+              <span>Translate to</span>
+              <select value={targetLang} onChange={(event) => changeTargetLanguage(event.target.value)} aria-label="Translation language">
+                {NATIVE_LANGUAGES.map((item) => <option value={item.code} key={item.code}>{item.label}</option>)}
+              </select>
+            </label>
+            <div className="mode-switch" role="group" aria-label="Transcription mode">
+              <button className={mode === "smart" ? "active" : ""} onClick={() => setMode("smart")} type="button">Smart AI</button>
+              <button
+                className={mode === "browser" ? "active" : ""}
+                disabled={inputSource !== "mic"}
+                onClick={() => setMode("browser")}
+                type="button"
+              >
+                Browser
+              </button>
             </div>
           </div>
 
-          <div className="infographic">
-            <div className="pulse-ring">
-              <span>{recording ? "Live" : "Ready"}</span>
+          <div className="panel-section capture-health">
+            <div className="meter-card">
+              <div className="meter-label">
+                <span>{captureSourceLabel(inputSource)}</span>
+                <strong>{micLevel}%</strong>
+              </div>
+              <div className="meter"><span style={{ width: `${micLevel}%` }} /></div>
             </div>
-            <div className="metric-grid">
+            <div className="status-log">
+              <span>{engineMessage}</span>
+              <span>{storageMessage}</span>
+            </div>
+          </div>
+        </aside>
+
+        <section className="workbench">
+          <div className="workbench-head">
+            <div className="metric-strip">
               <div><small>Minutes</small><strong>{stats.minutes}</strong></div>
               <div><small>Parts</small><strong>{stats.segments}</strong></div>
               <div><small>Original</small><strong>{stats.sourceWords}</strong></div>
-              <div><small>Translation</small><strong>{stats.translatedWords}</strong></div>
+              <div><small>Target</small><strong>{stats.translatedWords}</strong></div>
+            </div>
+            <div className="toolbar-actions">
+              <button onClick={clearActiveSession} type="button">Clear</button>
+              <button onClick={() => downloadTranscript()} type="button">Markdown</button>
+              <button onClick={() => downloadJson()} type="button">JSON</button>
+              <button onClick={() => setShowDetails((value) => !value)} type="button">{showDetails ? "Hide details" : "Details"}</button>
             </div>
           </div>
 
@@ -1394,6 +1355,6 @@ export default function StudyApp() {
           </div>
         </aside>
       </main>
-    </>
+    </div>
   );
 }
