@@ -13,3 +13,5 @@ node_modules
 *.tsbuildinfo
 *-screenshot.png
 lmn-*.png
+*.bundle
+*.zip
