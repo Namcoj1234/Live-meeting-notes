@@ -197,17 +197,108 @@ function browserTargetLanguage() {
   return NATIVE_LANGUAGES.some((item) => item.code === code) ? code : "vi";
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function asString(value: unknown, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
+
+function asCaptureSource(value: unknown): CaptureSource | undefined {
+  return CAPTURE_SOURCES.some((item) => item.value === value) ? value as CaptureSource : undefined;
+}
+
+function asMode(value: unknown): LocalStore["mode"] | undefined {
+  return value === "smart" || value === "browser" ? value : undefined;
+}
+
+function normalizeSegment(value: unknown, index: number): Segment | null {
+  const item = asRecord(value);
+  const id = asString(item.id) || uid("seg");
+  const now = new Date().toISOString();
+  const clipIndex = Number.isFinite(Number(item.clipIndex)) ? Number(item.clipIndex) : index + 1;
+  const sourceText = asString(item.sourceText);
+  const translatedText = asString(item.translatedText);
+  const status = item.status === "error" ? "error" : "ready";
+  if (!sourceText && !translatedText && status !== "error") return null;
+  return {
+    id,
+    clipIndex,
+    startedAt: asString(item.startedAt, now),
+    endedAt: asString(item.endedAt, asString(item.startedAt, now)),
+    sourceText,
+    translatedText,
+    sourceLang: asString(item.sourceLang, "auto"),
+    targetLang: asString(item.targetLang, "vi"),
+    captureSource: asCaptureSource(item.captureSource),
+    origin: item.origin === "cloud" || item.origin === "browser" || item.origin === "manual" ? item.origin : "manual",
+    status,
+    error: asString(item.error) || undefined
+  };
+}
+
+function normalizeSession(value: unknown): MeetingSession | null {
+  const item = asRecord(value);
+  const now = new Date().toISOString();
+  const id = asString(item.id) || uid("meeting");
+  const rawSegments = Array.isArray(item.segments) ? item.segments : [];
+  const segments = rawSegments.map(normalizeSegment).filter((segment): segment is Segment => Boolean(segment));
+  return {
+    id,
+    title: asString(item.title, `Meeting ${new Date().toLocaleDateString()}`),
+    host: asString(item.host, "Personal"),
+    date: asString(item.date, todayIso()),
+    targetLang: asString(item.targetLang, "vi"),
+    createdAt: asString(item.createdAt, now),
+    updatedAt: asString(item.updatedAt, now),
+    endedAt: asString(item.endedAt) || undefined,
+    segments,
+    lastSavedAt: asString(item.lastSavedAt) || undefined
+  };
+}
+
+function normalizeLocalStore(value: unknown): LocalStore {
+  const store = asRecord(value);
+  const sessions = Array.isArray(store.sessions)
+    ? store.sessions.map(normalizeSession).filter((session): session is MeetingSession => Boolean(session)).slice(0, MAX_LOCAL_SESSIONS)
+    : [];
+  return {
+    userName: asString(store.userName) || undefined,
+    targetLang: asString(store.targetLang) || undefined,
+    speechLang: asString(store.speechLang) || undefined,
+    inputSource: asCaptureSource(store.inputSource),
+    mode: asMode(store.mode),
+    sessions
+  };
+}
+
 function readLocal(): LocalStore {
   if (typeof window === "undefined") return {};
   try {
-    return JSON.parse(localStorage.getItem(LOCAL_KEY) || "{}") || {};
+    return normalizeLocalStore(JSON.parse(localStorage.getItem(LOCAL_KEY) || "{}"));
   } catch {
     return {};
   }
 }
 
 function writeLocal(store: LocalStore) {
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(store));
+  try {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(store));
+  } catch {
+    const reduced = {
+      ...store,
+      sessions: (store.sessions || []).slice(0, 8).map((session) => ({
+        ...session,
+        segments: session.segments.slice(-40)
+      }))
+    };
+    try {
+      localStorage.setItem(LOCAL_KEY, JSON.stringify(reduced));
+    } catch {
+      // Keep the app running even when private browsing or quota limits block storage.
+    }
+  }
 }
 
 function chooseMimeType() {
