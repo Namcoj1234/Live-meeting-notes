@@ -4,13 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { StudyNote } from "../lib/types";
 
 const LOCAL_KEY = "lmn-smart-transcribe-local";
-const CHUNK_MS = 4500;
+const CHUNK_MS = 3500;
 const CLOUD_RESTART_MS = 80;
-const MIN_CLOUD_AUDIO_BYTES = 950;
+const MIN_CLOUD_AUDIO_BYTES = 720;
 const SPEECH_AUDIO_BITS = 64000;
 const MIN_VOICE_LEVEL = 2;
 const CONTEXT_SEGMENTS = 5;
 const LIVE_DRAFT_LIMIT = 520;
+const LIVE_TRANSLATION_LIMIT = 760;
 const MAX_LOCAL_SESSIONS = 30;
 const AUTOSAVE_DELAY_MS = 1800;
 
@@ -144,6 +145,38 @@ function wordCount(text: string) {
 function compactLiveDraft(text: string) {
   const compacted = text.replace(/\s+/g, " ").trim();
   return compacted.length > LIVE_DRAFT_LIMIT ? compacted.slice(-LIVE_DRAFT_LIMIT).trimStart() : compacted;
+}
+
+function compactLiveTranslation(text: string) {
+  const compacted = text.replace(/\s+/g, " ").trim();
+  return compacted.length > LIVE_TRANSLATION_LIMIT ? compacted.slice(-LIVE_TRANSLATION_LIMIT).trimStart() : compacted;
+}
+
+function smoothTranscriptText(segments: Segment[], field: "sourceText" | "translatedText") {
+  const text = segments
+    .filter((segment) => segment.status === "ready")
+    .map((segment) => segment[field])
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+  if (!text) return "";
+
+  const sentences = text.match(/[^.!?。！？]+[.!?。！？]+(?:["')\]]+)?|[^.!?。！？]+$/g) || [text];
+  const paragraphs: string[] = [];
+  let current = "";
+  for (const sentence of sentences.map((item) => item.trim()).filter(Boolean)) {
+    const next = current ? `${current} ${sentence}` : sentence;
+    if (next.length > 520 && current) {
+      paragraphs.push(current);
+      current = sentence;
+    } else {
+      current = next;
+    }
+  }
+  if (current) paragraphs.push(current);
+  return paragraphs.join("\n\n");
 }
 
 function captureSourceLabel(value: CaptureSource) {
@@ -398,6 +431,7 @@ export default function StudyApp() {
   const [activeSessionId, setActiveSessionId] = useState("");
   const [recording, setRecording] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState("");
+  const [interimTranslation, setInterimTranslation] = useState("");
   const [micLevel, setMicLevel] = useState(0);
   const [engineMessage, setEngineMessage] = useState("Ready");
   const [storageMessage, setStorageMessage] = useState("Local memory ready");
@@ -416,6 +450,10 @@ export default function StudyApp() {
   const localMediaRef = useRef<HTMLMediaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const browserDraftRef = useRef("");
+  const translationDraftRef = useRef("");
+  const liveTranslateQueueRef = useRef("");
+  const liveTranslateInFlightRef = useRef(false);
+  const liveTranslateTokenRef = useRef(0);
   const sessionsRef = useRef<MeetingSession[]>([]);
   const cloudVoicePeakRef = useRef(0);
   const keepRecordingRef = useRef(false);
@@ -534,14 +572,66 @@ export default function StudyApp() {
   }
 
   function resetLiveDraft() {
+    liveTranslateTokenRef.current += 1;
     browserDraftRef.current = "";
+    translationDraftRef.current = "";
+    liveTranslateQueueRef.current = "";
     setInterimTranscript("");
+    setInterimTranslation("");
   }
 
   function updateLiveDraft(finalText: string, interimText: string) {
     if (finalText) browserDraftRef.current = compactLiveDraft([browserDraftRef.current, finalText].filter(Boolean).join(" "));
     const visibleDraft = compactLiveDraft([browserDraftRef.current, interimText].filter(Boolean).join(" "));
     setInterimTranscript(visibleDraft);
+    if (finalText && aiStatus.configured) queueLiveTranslation(finalText);
+  }
+
+  function appendLiveTranslation(text: string) {
+    translationDraftRef.current = compactLiveTranslation([translationDraftRef.current, text].filter(Boolean).join(" "));
+    setInterimTranslation(translationDraftRef.current);
+  }
+
+  function queueLiveTranslation(text: string) {
+    const cleanText = text.replace(/\s+/g, " ").trim();
+    if (!cleanText) return;
+    liveTranslateQueueRef.current = [liveTranslateQueueRef.current, cleanText].filter(Boolean).join(" ");
+    void flushLiveTranslation();
+  }
+
+  async function flushLiveTranslation() {
+    if (liveTranslateInFlightRef.current) return;
+    const text = liveTranslateQueueRef.current.trim();
+    if (!text) return;
+    liveTranslateQueueRef.current = "";
+    liveTranslateInFlightRef.current = true;
+    const token = ++liveTranslateTokenRef.current;
+
+    try {
+      const context = recentSegmentContext();
+      const res = await fetch("/api/smart-transcribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          sourceLang: speechLangRef.current === "auto" ? "auto" : speechLangRef.current.split("-")[0],
+          targetLang: targetLangRef.current,
+          meetingTitle: context.meetingTitle,
+          sourceContext: context.sourceContext,
+          translationContext: context.translationContext
+        })
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Live translation failed");
+      if (token >= liveTranslateTokenRef.current && payload.translatedText) appendLiveTranslation(payload.translatedText);
+    } catch {
+      // Live translation is a low-latency preview; the cloud chunk still provides the saved transcript.
+    } finally {
+      liveTranslateInFlightRef.current = false;
+      if (keepRecordingRef.current && liveTranslateQueueRef.current.trim()) {
+        window.setTimeout(() => void flushLiveTranslation(), 250);
+      }
+    }
   }
 
   function recentSegmentContext(): SegmentContext {
@@ -1185,8 +1275,8 @@ export default function StudyApp() {
     if (activeSessionId === sessionId) setActiveSessionId("");
   }
 
-  const sourceText = sortedSegments.map((segment) => segment.sourceText).filter(Boolean).join("\n\n");
-  const translatedText = sortedSegments.map((segment) => segment.translatedText).filter(Boolean).join("\n\n");
+  const sourceText = smoothTranscriptText(sortedSegments, "sourceText");
+  const translatedText = smoothTranscriptText(sortedSegments, "translatedText");
   const cloudReady = (mode === "smart" || inputSource !== "mic") && aiStatus.configured;
   const activeSource = CAPTURE_SOURCES.find((source) => source.value === inputSource) || CAPTURE_SOURCES[0];
   const recordLabel = recording ? "Stop" : inputSource === "file" ? "Play + transcribe" : inputSource === "meeting" ? "Capture audio" : "Record";
@@ -1381,7 +1471,8 @@ export default function StudyApp() {
                 <strong>{languageLabel(targetLang)}</strong>
               </div>
               <div className="transcript-text">
-                {translatedText || <span className="placeholder">{aiStatus.configured ? "Translation will appear after speech is processed." : "Add Cloudflare AI keys for translation."}</span>}
+                {translatedText || (!interimTranslation && <span className="placeholder">{aiStatus.configured ? "Translation will appear after speech is processed." : "Add Cloudflare AI keys for translation."}</span>)}
+                {interimTranslation && <p className="interim translation-draft">{interimTranslation}</p>}
               </div>
             </article>
           </div>

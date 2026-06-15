@@ -473,7 +473,8 @@ a:hover {
   min-height: 28px;
   display: flex;
   align-items: center;
-  overflow: hidden;
+  min-width: 0;
+  overflow-wrap: anywhere;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-soft);
@@ -481,8 +482,7 @@ a:hover {
   padding: 6px 8px;
   font-size: 12px;
   font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
 }
 
 .status-log span:nth-child(2) {
@@ -614,6 +614,11 @@ a:hover {
   font-style: normal;
   font-weight: 650;
   background: linear-gradient(90deg, rgba(47, 128, 237, 0.1), transparent 82%);
+}
+
+.translation-draft {
+  border-left-color: #19a56f;
+  background: linear-gradient(90deg, rgba(25, 165, 111, 0.1), transparent 82%);
 }
 
 .timeline {
