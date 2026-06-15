@@ -1,0 +1,33 @@
+{
+  "name": "live-meeting-notes-smart-transcribe",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:lan": "next dev -H 0.0.0.0 -p 3000",
+    "build": "next build",
+    "build:cf": "opennextjs-cloudflare build",
+    "preview:cf": "opennextjs-cloudflare build && wrangler dev",
+    "deploy:cf": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "start": "next start",
+    "start:lan": "next start -H 0.0.0.0 -p 3000",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@opennextjs/cloudflare": "^1.19.11",
+    "next": "^15.5.7",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.12",
+    "@types/react-dom": "^19.0.4",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.100.0"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1",
+    "postcss": "^8.5.15"
+  }
+}

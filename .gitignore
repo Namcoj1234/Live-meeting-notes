@@ -1,0 +1,15 @@
+node_modules
+.next
+.env
+.env.local
+.dev.vars
+.vercel
+.netlify
+.open-next
+.wrangler
+.DS_Store
+*.log
+*.err.log
+*.tsbuildinfo
+*-screenshot.png
+lmn-*.png

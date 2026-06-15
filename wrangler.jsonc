@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "live-meeting-notes",
+  "main": ".open-next/worker.js",
+  "workers_dev": true,
+  "compatibility_date": "2026-06-15",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "LMN_DB",
+      "database_name": "live-meeting-notes-db",
+      "database_id": "062da3d7-248e-4497-923f-57fd766414c4"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "live-meeting-notes"
+    }
+  ],
+  "vars": {
+    "WORKSPACE_CODE": "LMN-PERSONAL",
+    "CLOUDFLARE_ACCOUNT_ID": "508848275f7a284343b25659aabaf52c",
+    "CLOUDFLARE_WHISPER_MODEL": "@cf/openai/whisper-large-v3-turbo",
+    "CLOUDFLARE_TRANSLATE_MODEL": "@cf/meta/m2m100-1.2b",
+    "CLOUDFLARE_INTERPRETER_MODEL": "@cf/meta/llama-3.1-8b-instruct-fast"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
