@@ -1456,7 +1456,10 @@ export default function StudyApp() {
           <div className="transcript-grid">
             <article className="transcript-pane">
               <div className="pane-head pane-head-control">
-                <span>Original</span>
+                <div>
+                  <span>Original</span>
+                  <small>{interimTranscript ? "Live browser draft" : sourceText ? "Cloud refined text" : "Waiting"}</small>
+                </div>
                 <strong>{speechLanguageLabel(speechLang)}</strong>
               </div>
               <div className="transcript-text">
@@ -1467,7 +1470,10 @@ export default function StudyApp() {
 
             <article className="transcript-pane native">
               <div className="pane-head pane-head-control">
-                <span>Translation</span>
+                <div>
+                  <span>Translation</span>
+                  <small>{interimTranslation ? "Live preview, saved after refine" : translatedText ? "Cloud refined translation" : "Waiting"}</small>
+                </div>
                 <strong>{languageLabel(targetLang)}</strong>
               </div>
               <div className="transcript-text">
