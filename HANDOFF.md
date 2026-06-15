@@ -5,7 +5,7 @@
 - App: Live Meeting Notes
 - Production URL: https://live-meeting-notes.namcoj1234-repm5.workers.dev
 - Cloudflare Worker name: `live-meeting-notes`
-- Current deployed version checked during handoff: `223e8f09-00ec-444b-a0cb-856a05193c88`
+- Current deployed version checked during handoff: `a4650ee4-c9fd-4edd-bafe-4b63262b96a3`
 - Storage: Cloudflare D1 text-only notes
 - D1 database name: `live-meeting-notes-db`
 - D1 database id: `062da3d7-248e-4497-923f-57fd766414c4`
@@ -19,6 +19,7 @@
 - Uses Cloudflare Whisper for transcription.
 - Uses a Llama interpreter pass to clean ASR and translate by meaning with recent context.
 - Saves text notes only. Audio is not saved to D1, KV, or R2.
+- The `/api/audio` route is disabled with `410` so direct audio uploads cannot accidentally create files.
 
 ## New Machine Setup
 
@@ -130,4 +131,3 @@ On the second machine, clone that URL and continue from "New Machine Setup".
 - For best tab/system audio capture, use Chrome or Edge.
 - Local file capture uses the in-app audio/video player and `captureStream`.
 - Microphone access requires HTTPS in production; localhost is allowed for dev.
-

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getD1, getWorkspaceCode, rowToActivityLog, rowToStudyNote, storageConfigured } from "../../../lib/cloudflare";
+import { getD1, getWorkspaceCode, rowToStudyNote, storageConfigured } from "../../../lib/cloudflare";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -33,34 +33,22 @@ export async function GET(req: NextRequest) {
 
   try {
     const workspaceCode = getWorkspaceCode();
-    const [notesRes, logsRes] = await Promise.all([
-      db
-        .prepare(
-          `select id, date, member_name, note_type, title, content, visibility, created_at, updated_at
-           from study_notes
-           where workspace_code = ? and date = ?
-           order by updated_at desc`
-        )
-        .bind(workspaceCode, date)
-        .all<Record<string, unknown>>(),
-      db
-        .prepare(
-          `select id, member_name, action, entity_type, entity_id, payload, created_at
-           from activity_logs
-           where workspace_code = ?
-           order by created_at desc
-           limit 50`
-        )
-        .bind(workspaceCode)
-        .all<Record<string, unknown>>()
-    ]);
+    const notesRes = await db
+      .prepare(
+        `select id, date, member_name, note_type, title, content, visibility, created_at, updated_at
+         from study_notes
+         where workspace_code = ? and date = ?
+         order by updated_at desc`
+      )
+      .bind(workspaceCode, date)
+      .all<Record<string, unknown>>();
 
     return NextResponse.json(
       {
         dbEnabled: storageConfigured(),
         workspaceCode,
         notes: (notesRes.results || []).map(rowToStudyNote),
-        logs: (logsRes.results || []).map(rowToActivityLog)
+        logs: []
       },
       { headers: { "Cache-Control": "no-store" } }
     );

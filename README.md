@@ -4,7 +4,7 @@ Personal recording, bilingual transcription, translation, and meeting memory.
 
 This app is a focused rewrite of the original study manager. It keeps the recording and note workflow, removes the project-heavy UI, and uses Cloudflare-native storage:
 
-- D1 stores notes and activity logs.
+- D1 stores text notes and lightweight state only.
 - Cloud storage is text-only by default, so recordings do not bloat D1/KV/R2.
 - Workers AI powers Smart Transcribe when AI credentials are configured.
 - Smart Transcribe uses Whisper for ASR, then a Llama interpreter pass to clean ASR noise and translate by meaning.
@@ -56,18 +56,7 @@ The worker expects this binding for text storage:
 ]
 ```
 
-The old `/api/audio` route is left disabled unless an audio binding is added intentionally. The normal LMN flow saves only transcript text.
-
-If R2 is enabled later and you intentionally want audio storage, add this binding:
-
-```jsonc
-"r2_buckets": [
-  {
-    "binding": "LMN_AUDIO",
-    "bucket_name": "live-meeting-notes-audio"
-  }
-]
-```
+The `/api/audio` route is intentionally disabled and returns `410`. The normal LMN flow saves only transcript text.
 
 ## Smart Transcribe
 
@@ -97,8 +86,8 @@ npm run deploy:cf
 ## Notes
 
 - Microphone access requires HTTPS in production. `localhost` is allowed for local development.
-- Smart mode records complete 8-second cloud clips instead of raw MediaRecorder fragments, so Whisper receives decodable audio files.
-- These clips are transient processing input; the app saves text notes, not audio files.
+- Smart mode sends short transient processing chunks to Whisper, then discards them.
+- The app saves text notes, not audio files.
 - D1 is separate from the old REPM database, so this app no longer depends on Supabase.
 - Cloudflare free quotas are still quotas, but text-only D1 storage avoids the Supabase egress/storage issue that triggered this migration.
 - Browser apps cannot silently capture all system audio. Meeting/video capture uses the browser's `getDisplayMedia` picker, and local media capture uses the in-app player.

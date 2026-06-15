@@ -72,10 +72,10 @@ type SegmentContext = {
 
 type CaptureSource = "mic" | "meeting" | "file";
 
-const CAPTURE_SOURCES: Array<{ value: CaptureSource; label: string; short: string }> = [
-  { value: "mic", label: "Mic", short: "Voice" },
-  { value: "meeting", label: "Meeting", short: "Tab audio" },
-  { value: "file", label: "Media", short: "Local file" }
+const CAPTURE_SOURCES: Array<{ value: CaptureSource; label: string; short: string; detail: string }> = [
+  { value: "mic", label: "Microphone", short: "Live voice", detail: "For in-room calls, interviews, and direct speaking." },
+  { value: "meeting", label: "Online meeting", short: "Tab or system audio", detail: "For Meet, Zoom web, Teams web, and shared browser audio." },
+  { value: "file", label: "Local playback", short: "Audio or video file", detail: "For recordings, downloaded videos, and media on this computer." }
 ];
 
 const NATIVE_LANGUAGES: LanguageOption[] = [
@@ -185,6 +185,10 @@ async function waitForMediaReady(element: HTMLMediaElement) {
 
 function languageLabel(code: string) {
   return NATIVE_LANGUAGES.find((item) => item.code === code)?.label || code.toUpperCase();
+}
+
+function speechLanguageLabel(code: string) {
+  return SPEECH_LANGUAGES.find((item) => item.code === code)?.label || code;
 }
 
 function browserTargetLanguage() {
@@ -549,7 +553,7 @@ export default function StudyApp() {
 
   async function openMeetingAudioStream() {
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      throw new Error("Meeting audio capture is not available in this browser");
+      throw new Error("Meeting audio needs Chrome or Edge screen sharing");
     }
     const displayStream = await navigator.mediaDevices.getDisplayMedia({
       video: true,
@@ -566,9 +570,9 @@ export default function StudyApp() {
     if (!audioTracks.length) {
       displayStream.getTracks().forEach((track) => track.stop());
       displayStreamRef.current = null;
-      throw new Error("No meeting audio was shared");
+      throw new Error("No meeting audio shared. Select a tab/window and enable audio in the picker.");
     }
-    audioTracks.forEach((track) => {
+    displayStream.getTracks().forEach((track) => {
       track.addEventListener("ended", () => {
         if (keepRecordingRef.current) stopRecording();
       });
@@ -654,7 +658,7 @@ export default function StudyApp() {
     clipIndexRef.current = Math.max(1, session.segments.length + 1);
     resetLiveDraft();
     const source = inputSourceRef.current;
-    setEngineMessage(source === "meeting" ? "Opening audio picker" : source === "file" ? "Starting media playback" : "Requesting microphone");
+    setEngineMessage(source === "meeting" ? "Choose a tab/window and enable audio" : source === "file" ? "Starting media playback" : "Requesting microphone");
 
     try {
       if (source !== "mic" && !aiStatus.configured) {
@@ -1004,6 +1008,18 @@ export default function StudyApp() {
   const sourceText = sortedSegments.map((segment) => segment.sourceText).filter(Boolean).join("\n\n");
   const translatedText = sortedSegments.map((segment) => segment.translatedText).filter(Boolean).join("\n\n");
   const cloudReady = (mode === "smart" || inputSource !== "mic") && aiStatus.configured;
+  const activeSource = CAPTURE_SOURCES.find((source) => source.value === inputSource) || CAPTURE_SOURCES[0];
+  const recordLabel = recording ? "Stop" : inputSource === "file" ? "Play + transcribe" : inputSource === "meeting" ? "Capture audio" : "Record";
+  const sourceReadyText =
+    inputSource === "meeting"
+      ? "Pick the meeting tab or window, then enable audio in the browser picker."
+      : inputSource === "file"
+        ? localMediaUrl
+          ? "Press play + transcribe to capture the selected local media."
+          : "Choose an audio or video file before starting."
+        : "Use the microphone for the smoothest live draft, then refine with Smart AI.";
+  const modeLabel = cloudReady ? "Smart AI bilingual" : mode === "browser" ? "Browser live draft" : "Smart AI unavailable";
+  const storageLabel = dbEnabled ? "Cloudflare text DB" : "Local text memory";
 
   return (
     <>
@@ -1031,43 +1047,82 @@ export default function StudyApp() {
             <strong>{recording ? "Live" : "Idle"}</strong>
           </div>
 
-          <label className="field">
-            <span>Your name</span>
-            <input value={userName} onChange={(event) => setUserName(event.target.value)} />
-          </label>
+          <div className="session-summary">
+            <div>
+              <span>Source</span>
+              <strong>{activeSource.label}</strong>
+            </div>
+            <div>
+              <span>Translate</span>
+              <strong>{languageLabel(targetLang)}</strong>
+            </div>
+            <div>
+              <span>Mode</span>
+              <strong>{modeLabel}</strong>
+            </div>
+            <div>
+              <span>Host</span>
+              <strong>{userName || "Personal"}</strong>
+            </div>
+          </div>
 
-          <label className="field">
-            <span>Meeting title</span>
-            <input
-              value={activeSession?.title || ""}
-              onChange={(event) => updateActiveSession((session) => ({ ...session, title: event.target.value, updatedAt: new Date().toISOString() }))}
-              onFocus={ensureActiveSession}
-              placeholder="Create or name a meeting"
-            />
-          </label>
+          <div className="mini-log">
+            <span>{engineMessage}</span>
+            <span>{storageLabel}</span>
+          </div>
+        </section>
 
-          <div className="source-panel">
-            <div className="panel-label">Source</div>
-            <div className="source-switch" role="group" aria-label="Audio source">
+        <section className="live-board">
+          <div className="capture-dock">
+            <div className="dock-head">
+              <div>
+                <span className="panel-label">Capture source</span>
+                <h2>{activeSource.label}</h2>
+                <p>{sourceReadyText}</p>
+              </div>
+              <span className={recording ? "live-pill active" : "live-pill"}>{recording ? "Recording" : "Ready"}</span>
+            </div>
+
+            <div className="session-inline">
+              <label className="field">
+                <span>Your name</span>
+                <input value={userName} onChange={(event) => setUserName(event.target.value)} />
+              </label>
+
+              <label className="field">
+                <span>Meeting title</span>
+                <input
+                  value={activeSession?.title || ""}
+                  onChange={(event) => updateActiveSession((session) => ({ ...session, title: event.target.value, updatedAt: new Date().toISOString() }))}
+                  onFocus={ensureActiveSession}
+                  placeholder="Create or name a meeting"
+                />
+              </label>
+            </div>
+
+            <div className="source-card-grid" role="group" aria-label="Audio source">
               {CAPTURE_SOURCES.map((source) => (
                 <button
-                  className={inputSource === source.value ? "active" : ""}
+                  className={inputSource === source.value ? "source-card active" : "source-card"}
                   disabled={recording}
                   key={source.value}
                   onClick={() => changeInputSource(source.value)}
                   type="button"
                 >
-                  <span>{source.label}</span>
-                  <small>{source.short}</small>
+                  <span>{source.short}</span>
+                  <strong>{source.label}</strong>
+                  <small>{source.detail}</small>
                 </button>
               ))}
             </div>
+
             {inputSource === "meeting" && (
               <div className="source-hint">
-                <strong>Browser share audio</strong>
-                <span>Chrome or Edge works best for tab and system audio.</span>
+                <strong>Meeting capture uses browser share audio</strong>
+                <span>For the cleanest result, share the browser tab that is playing the meeting. Desktop audio depends on the browser and operating system picker.</span>
               </div>
             )}
+
             {inputSource === "file" && (
               <div className="file-deck">
                 <input
@@ -1094,50 +1149,67 @@ export default function StudyApp() {
                 )}
               </div>
             )}
-          </div>
 
-          <div className="mode-switch" role="group" aria-label="Transcription mode">
-            <button className={mode === "smart" ? "active" : ""} onClick={() => setMode("smart")} type="button">Smart AI</button>
-            <button
-              className={mode === "browser" ? "active" : ""}
-              disabled={inputSource !== "mic"}
-              onClick={() => setMode("browser")}
-              type="button"
-            >
-              Browser
-            </button>
-          </div>
-
-          <div className="record-row">
-            <button className={recording ? "record-button stop" : "record-button"} onClick={recording ? stopRecording : startRecording} type="button">
-              {recording ? "Stop" : inputSource === "file" ? "Play + transcribe" : inputSource === "meeting" ? "Capture audio" : "Record"}
-            </button>
-            <button className="icon-button" onClick={createFreshSession} type="button" title="New meeting">New</button>
-          </div>
-
-          <div className="meter-card">
-            <div className="meter-label">
-              <span>{captureSourceLabel(inputSource)}</span>
-              <strong>{micLevel}%</strong>
+            <div className="language-bar">
+              <label className="config-card">
+                <span>Speaker language</span>
+                <select value={speechLang} onChange={(event) => changeSpeechLanguage(event.target.value)} aria-label="Speaker language">
+                  {SPEECH_LANGUAGES.map((item) => <option value={item.code} key={item.code}>{item.label}</option>)}
+                </select>
+              </label>
+              <label className="config-card">
+                <span>Translate to</span>
+                <select value={targetLang} onChange={(event) => changeTargetLanguage(event.target.value)} aria-label="Translation language">
+                  {NATIVE_LANGUAGES.map((item) => <option value={item.code} key={item.code}>{item.label}</option>)}
+                </select>
+              </label>
+              <div className="config-card">
+                <span>Transcription engine</span>
+                <div className="mode-switch" role="group" aria-label="Transcription mode">
+                  <button className={mode === "smart" ? "active" : ""} onClick={() => setMode("smart")} type="button">Smart AI</button>
+                  <button
+                    className={mode === "browser" ? "active" : ""}
+                    disabled={inputSource !== "mic"}
+                    onClick={() => setMode("browser")}
+                    type="button"
+                  >
+                    Browser
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="meter"><span style={{ width: `${micLevel}%` }} /></div>
+
+            <div className="capture-command">
+              <div className="record-row">
+                <button className={recording ? "record-button stop" : "record-button"} onClick={recording ? stopRecording : startRecording} type="button">
+                  {recordLabel}
+                </button>
+                <button className="icon-button" onClick={createFreshSession} type="button" title="New meeting">New</button>
+              </div>
+
+              <div className="meter-card">
+                <div className="meter-label">
+                  <span>{captureSourceLabel(inputSource)}</span>
+                  <strong>{micLevel}%</strong>
+                </div>
+                <div className="meter"><span style={{ width: `${micLevel}%` }} /></div>
+              </div>
+
+              <div className="action-grid dock-actions">
+                <button onClick={saveActiveSession} type="button">Save text</button>
+                <button onClick={clearActiveSession} type="button">Clear</button>
+                <button onClick={() => downloadTranscript()} type="button">Markdown</button>
+                <button onClick={() => setShowDetails((value) => !value)} type="button">{showDetails ? "Hide details" : "Details"}</button>
+              </div>
+            </div>
+
+            <div className="mini-log dock-log">
+              <span>{engineMessage}</span>
+              <span>{storageMessage}</span>
+              <span>{cloudReady ? `${captureSourceLabel(inputSource)} to bilingual text` : "Mic-only browser draft"}</span>
+            </div>
           </div>
 
-          <div className="mini-log">
-            <span>{engineMessage}</span>
-            <span>{storageMessage}</span>
-            <span>{cloudReady ? `${captureSourceLabel(inputSource)} to text memory` : "Local browser capture"}</span>
-          </div>
-
-          <div className="action-grid">
-            <button onClick={saveActiveSession} type="button">Save text</button>
-            <button onClick={clearActiveSession} type="button">Clear</button>
-            <button onClick={() => downloadTranscript()} type="button">Markdown</button>
-            <button onClick={() => setShowDetails((value) => !value)} type="button">{showDetails ? "Hide details" : "Details"}</button>
-          </div>
-        </section>
-
-        <section className="live-board">
           <div className="infographic">
             <div className="pulse-ring">
               <span>{recording ? "Live" : "Ready"}</span>
@@ -1154,9 +1226,7 @@ export default function StudyApp() {
             <article className="transcript-pane">
               <div className="pane-head pane-head-control">
                 <span>Original</span>
-                <select value={speechLang} onChange={(event) => changeSpeechLanguage(event.target.value)} aria-label="Speaker language">
-                  {SPEECH_LANGUAGES.map((item) => <option value={item.code} key={item.code}>{item.label}</option>)}
-                </select>
+                <strong>{speechLanguageLabel(speechLang)}</strong>
               </div>
               <div className="transcript-text">
                 {sourceText || <span className="placeholder">Waiting for speech...</span>}
@@ -1166,10 +1236,8 @@ export default function StudyApp() {
 
             <article className="transcript-pane native">
               <div className="pane-head pane-head-control">
-                <span>Translate to</span>
-                <select value={targetLang} onChange={(event) => changeTargetLanguage(event.target.value)} aria-label="Translation language">
-                  {NATIVE_LANGUAGES.map((item) => <option value={item.code} key={item.code}>{item.label}</option>)}
-                </select>
+                <span>Translation</span>
+                <strong>{languageLabel(targetLang)}</strong>
               </div>
               <div className="transcript-text">
                 {translatedText || <span className="placeholder">{aiStatus.configured ? "Translation will appear after speech is processed." : "Add Cloudflare AI keys for translation."}</span>}
