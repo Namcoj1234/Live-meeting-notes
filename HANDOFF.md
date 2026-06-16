@@ -5,7 +5,7 @@
 - App: Live Meeting Notes
 - Production URL: https://live-meeting-notes.namcoj1234-repm5.workers.dev
 - Cloudflare Worker name: `live-meeting-notes`
-- Current deployed version checked during handoff: `a4650ee4-c9fd-4edd-bafe-4b63262b96a3`
+- Current deployed version checked during handoff: `b29ac79a-75a2-45ee-89be-50fd860b0394`
 - Storage: Cloudflare D1 text-only notes
 - D1 database name: `live-meeting-notes-db`
 - D1 database id: `062da3d7-248e-4497-923f-57fd766414c4`
@@ -29,11 +29,11 @@ Install these first:
 - Git
 - Cloudflare Wrangler access through `npx wrangler`
 
-Clone the GitHub repo after it is pushed:
+Clone the GitHub repo:
 
 ```powershell
-git clone <GITHUB_REPO_URL>
-cd <REPO_FOLDER>
+git clone https://github.com/Namcoj1234/Live-meeting-notes.git
+cd Live-meeting-notes
 npm install
 npm run dev
 ```

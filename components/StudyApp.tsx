@@ -439,6 +439,7 @@ export default function StudyApp() {
   const [cloudNotes, setCloudNotes] = useState<StudyNote[]>([]);
   const [aiStatus, setAiStatus] = useState<AiStatus>({ configured: false, provider: "browser-fallback" });
   const [showDetails, setShowDetails] = useState(false);
+  const [activeTranscriptPane, setActiveTranscriptPane] = useState<"source" | "translation">("source");
   const [localMediaUrl, setLocalMediaUrl] = useState("");
   const [localMediaName, setLocalMediaName] = useState("");
   const [localMediaKind, setLocalMediaKind] = useState<"audio" | "video">("audio");
@@ -1323,11 +1324,12 @@ export default function StudyApp() {
             </div>
             <label className="field">
               <span>Your name</span>
-              <input value={userName} onChange={(event) => setUserName(event.target.value)} />
+              <input suppressHydrationWarning value={userName} onChange={(event) => setUserName(event.target.value)} />
             </label>
             <label className="field">
               <span>Meeting title</span>
               <input
+                suppressHydrationWarning
                 value={activeSession?.title || ""}
                 onChange={(event) => updateActiveSession((session) => ({ ...session, title: event.target.value, updatedAt: new Date().toISOString() }))}
                 onFocus={ensureActiveSession}
@@ -1454,7 +1456,24 @@ export default function StudyApp() {
           </div>
 
           <div className="transcript-grid">
-            <article className="transcript-pane">
+            <div className="transcript-tabbar" role="group" aria-label="Transcript view">
+              <button
+                className={activeTranscriptPane === "source" ? "active" : ""}
+                onClick={() => setActiveTranscriptPane("source")}
+                type="button"
+              >
+                Original
+              </button>
+              <button
+                className={activeTranscriptPane === "translation" ? "active" : ""}
+                onClick={() => setActiveTranscriptPane("translation")}
+                type="button"
+              >
+                Translation
+              </button>
+            </div>
+
+            <article className={activeTranscriptPane === "source" ? "transcript-pane mobile-visible" : "transcript-pane"}>
               <div className="pane-head pane-head-control">
                 <div>
                   <span>Original</span>
@@ -1468,7 +1487,7 @@ export default function StudyApp() {
               </div>
             </article>
 
-            <article className="transcript-pane native">
+            <article className={activeTranscriptPane === "translation" ? "transcript-pane native mobile-visible" : "transcript-pane native"}>
               <div className="pane-head pane-head-control">
                 <div>
                   <span>Translation</span>
